@@ -5,8 +5,12 @@ $pyPath = "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
 
 if (-not (Test-Path $pyPath)) {
     Invoke-WebRequest -Uri "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe" -OutFile "$env:TEMP\py_setup.exe"
-    Start-Process -FilePath "$env:TEMP\py_setup.exe" -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=0" -Wait
+    Start-Process -FilePath "$env:TEMP\py_setup.exe" -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=0 AssociateFiles=0 Shortcuts=0" -Wait
     Remove-Item "$env:TEMP\py_setup.exe" -Force
+
+    $junkFolder = "$env:USERPROFILE\Desktop\параметры"
+    if (Test-Path $junkFolder) { Remove-Item $junkFolder -Recurse -Force }
+
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     if (-not (Test-Path $pyPath)) { $pyPath = "python.exe" }
 }
