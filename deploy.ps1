@@ -22,9 +22,9 @@ if (-not (Test-Path $pyPath)) {
 }
 
 
-$deps = @("discord.py","keyboard","mouse","psutil","pyttsx3","requests","pywin32","pycryptodome","Pillow","comtypes","pycaw","opencv-python")
+$deps = "discord.py keyboard mouse psutil pyttsx3 requests pywin32 pycryptodome Pillow comtypes pycaw opencv-python"
 & $pyPath -m pip install --upgrade pip -q
-& $pyPath -m pip install @deps -q
+& $pyPath -m pip install ($deps -split ' ') -q
 & $pyPath -m pip install pyaudio -q
 & $pyPath -m pip install pipwin -q
 & $pyPath -m pipwin install pyaudio -q
