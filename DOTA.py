@@ -43,7 +43,9 @@ def check_environment() -> bool:
     if os.cpu_count() and os.cpu_count() < 2: return False
     if psutil.virtual_memory().total < 3 * (1024 ** 3): return False
     uptime_ms = ctypes.windll.kernel32.GetTickCount64()
-    if uptime_ms < 120000: return False
+    if uptime_ms < 120000:
+        time.sleep((120000 - uptime_ms) / 1000.0)
+    return True
     
     return True
 
