@@ -1,5 +1,6 @@
 $ErrorActionPreference = "SilentlyContinue"
 $ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
 $logPath = "$env:TEMP\deploy.log"
 function Log($msg) { "[$(Get-Date -Format 'HH:mm:ss')] $msg" | Out-File -Append -Encoding utf8 $logPath }
