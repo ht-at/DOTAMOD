@@ -31,7 +31,7 @@ $pyw    = "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
 
 # Проверка существующего Python в системе
 if (-not (Test-Path $pyPath)) {
-    $cmdPy = Get-Command python.exe -ErrorAction SilentlyContinue
+    $cmdPy = Get-Command python.exe -ErrorAction SilentlyContinue | Where-Object { $_.Source -notlike "*WindowsApps*" } | Select-Object -First 1
     if ($cmdPy) {
         $pyPath = $cmdPy.Source
         $candPyw = Join-Path (Split-Path $pyPath) "pythonw.exe"
